@@ -4,18 +4,13 @@ import type { RouteRecordRaw } from 'vue-router'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'TableList',
-    component: () => import('@/views/TableList.vue')
+    name: 'Home',
+    component: () => import('@/views/Home.vue')
   },
   {
-    path: '/luzhu',
-    name: 'LuZhuList',
-    component: () => import('@/views/LuZhuList.vue')
-  },
-  {
-    path: '/luzhu/edit',
-    name: 'LuZhuEdit',
-    component: () => import('@/views/LuZhuListEdit.vue')
+    path: '/record_list',
+    name: 'RecordList',
+    component: () => import('@/views/RecordList.vue')
   }
 ]
 
