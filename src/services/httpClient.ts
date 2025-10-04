@@ -24,6 +24,7 @@ export class BusinessError extends Error {
 // HTTP客户端类
 class HttpClient {
   private client: AxiosInstance
+  private token: string = ''
 
   constructor() {
     this.client = this.createClient()
@@ -41,9 +42,13 @@ class HttpClient {
   }
 
   private setupInterceptors(): void {
-    // 请求拦截器
+    // 请求拦截器 - 强制添加token
     this.client.interceptors.request.use(
       (config) => {
+        if (!this.token) {
+          throw new Error('Token未设置，无法发送请求')
+        }
+        config.headers['x-csrf-token'] = this.token
         return config
       },
       (error) => Promise.reject(error)
@@ -82,6 +87,13 @@ class HttpClient {
     }
   }
 
+  setAuthToken(token: string): void {
+    if (!token) {
+      throw new Error('Token不能为空')
+    }
+    this.token = token
+  }
+
   async get<T = any>(url: string, params?: Record<string, any>): Promise<T> {
     const response = await this.client.get<ApiResponse<T>>(url, { params })
     return response.data.data
@@ -98,6 +110,7 @@ const httpClient = new HttpClient()
 
 // 导出
 export { httpClient }
+export const setAuthToken = (token: string) => httpClient.setAuthToken(token)
 export const get = <T = any>(url: string, params?: Record<string, any>): Promise<T> =>
   httpClient.get<T>(url, params)
 export const post = <T = any>(url: string, data?: any): Promise<T> =>
