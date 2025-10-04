@@ -37,6 +37,14 @@ export class GameApiService {
     return get('/tiaozheng/search', params)
   }
 
+  /**
+   * 获取系统配置
+   * @param params 参数
+   */
+  static async getSysConfig(params: {}) {
+    return get('/tiaozheng/config', params)
+  }
+
   // 修改记录的输赢状态
   static async changeRecord(params: {
     log_id: number      // 记录ID
