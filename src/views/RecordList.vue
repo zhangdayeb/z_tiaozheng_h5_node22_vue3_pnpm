@@ -1,79 +1,85 @@
 <template>
   <div class="record-list-container">
-    <!-- 顶部导航 -->
+    <!-- 顶部导航 - 固定在顶部 -->
     <van-nav-bar
       :title="`${username} 的游戏记录`"
       left-arrow
       @click-left="goBack"
+      fixed
+      placeholder
     />
 
-    <!-- 搜索条件 -->
-    <div class="search-section">
-      <van-cell-group inset>
-        <van-field
-          v-model="startDate"
-          label="开始日期"
-          placeholder="选择开始日期"
-          readonly
-          clickable
-          @click="showStartPicker = true"
-        >
-          <template #right-icon>
-            <van-icon name="calendar-o" />
-          </template>
-        </van-field>
-        
-        <van-field
-          v-model="endDate"
-          label="结束日期"
-          placeholder="选择结束日期"
-          readonly
-          clickable
-          @click="showEndPicker = true"
-        >
-          <template #right-icon>
-            <van-icon name="calendar-o" />
-          </template>
-        </van-field>
-      </van-cell-group>
+    <!-- 下拉刷新容器 -->
+    <van-pull-refresh 
+      v-model="refreshing" 
+      @refresh="onRefresh"
+      class="main-content"
+    >
+      <!-- 搜索条件 -->
+      <div class="search-section">
+        <van-cell-group inset>
+          <van-field
+            v-model="startDate"
+            label="开始日期"
+            placeholder="选择开始日期"
+            readonly
+            clickable
+            @click="showStartPicker = true"
+          >
+            <template #right-icon>
+              <van-icon name="calendar-o" />
+            </template>
+          </van-field>
+          
+          <van-field
+            v-model="endDate"
+            label="结束日期"
+            placeholder="选择结束日期"
+            readonly
+            clickable
+            @click="showEndPicker = true"
+          >
+            <template #right-icon>
+              <van-icon name="calendar-o" />
+            </template>
+          </van-field>
+        </van-cell-group>
 
-      <div class="search-buttons">
-        <van-button type="primary" size="small" @click="handleSearch">
-          搜索
-        </van-button>
-        <van-button type="default" size="small" @click="handleReset">
-          重置
-        </van-button>
+        <div class="search-buttons">
+          <van-button type="primary" size="small" @click="handleSearch">
+            搜索
+          </van-button>
+          <van-button type="default" size="small" @click="handleReset">
+            重置
+          </van-button>
+        </div>
       </div>
-    </div>
 
-    <!-- 统计信息 -->
-    <div class="stats-info" v-if="statsInfo.visible">
-      <div class="stat-item">
-        <span class="label">总记录：</span>
-        <span class="value">{{ statsInfo.total }}</span>
+      <!-- 统计信息 -->
+      <div class="stats-info" v-if="statsInfo.visible">
+        <div class="stat-item">
+          <span class="label">总记录：</span>
+          <span class="value">{{ statsInfo.total }}</span>
+        </div>
+        <div class="stat-item">
+          <span class="label">当前余额：</span>
+          <span class="value money">{{ formatMoney(statsInfo.balance) }}</span>
+        </div>
       </div>
-      <div class="stat-item">
-        <span class="label">当前余额：</span>
-        <span class="value money">¥{{ statsInfo.balance }}</span>
-      </div>
-    </div>
 
-    <!-- 记录列表 -->
-    <div class="record-list">
+      <!-- 记录列表 -->
       <van-list
         v-model:loading="loading"
         :finished="finished"
         finished-text="没有更多了"
         @load="onLoad"
         :immediate-check="false"
+        class="record-list"
       >
         <div
           v-for="item in recordList"
           :key="item.id"
           class="record-item"
-          :class="{ 'clickable': isModifiable(item) }"
-          @click="handleItemClick(item)"
         >
           <div class="item-header">
             <span class="game-type">{{ getGameTypeText(item) }}</span>
@@ -95,24 +101,44 @@
           </div>
           
           <div class="item-footer">
-            <van-tag 
-              :type="getStatusTagType(item)"
-              size="medium"
-            >
-              {{ getStatusText(item) }}
-            </van-tag>
-            <span class="remark">{{ getRemarkText(item) }}</span>
+            <div class="status-info">
+              <van-tag 
+                :type="getStatusTagType(item)"
+                size="medium"
+              >
+                {{ getStatusText(item) }}
+              </van-tag>
+              
+              <!-- 操作按钮区域 -->
+              <div v-if="isModifiable(item)" class="action-buttons">
+                <van-button
+                  size="mini"
+                  type="primary"
+                  plain
+                  round
+                  @click="handleChangeStatus(item)"
+                  :loading="item.changing"
+                >
+                  {{ getChangeButtonText(item) }}
+                </van-button>
+              </div>
+            </div>
+            
+            <!-- 备注信息 -->
+            <span class="remark" v-if="getRemarkText(item)">
+              {{ getRemarkText(item) }}
+            </span>
           </div>
         </div>
-      </van-list>
 
-      <!-- 空状态 -->
-      <van-empty
-        v-if="!loading && recordList.length === 0"
-        description="暂无记录"
-        image="default"
-      />
-    </div>
+        <!-- 空状态 -->
+        <van-empty
+          v-if="!loading && !refreshing && recordList.length === 0"
+          description="暂无记录"
+          image="default"
+        />
+      </van-list>
+    </van-pull-refresh>
 
     <!-- 日期选择器 -->
     <van-popup v-model:show="showStartPicker" position="bottom">
@@ -132,18 +158,11 @@
         @cancel="showEndPicker = false"
       />
     </van-popup>
-
-    <!-- 加载动画 -->
-    <van-overlay :show="changeLoading">
-      <div class="loading-wrapper">
-        <van-loading size="24px" vertical>修改中...</van-loading>
-      </div>
-    </van-overlay>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import { searchRecords, changeRecord } from '@/services/gameApi'
@@ -151,13 +170,12 @@ import { searchRecords, changeRecord } from '@/services/gameApi'
 const route = useRoute()
 const router = useRouter()
 
-// 定义操作类型常量（根据实际后端定义调整）
+// 定义操作类型常量
 const OPERATE_TYPES = {
   BET: 1,           // 下注
   SETTLEMENT: 2,    // 结算
   RECHARGE: 3,      // 充值
   WITHDRAW: 4,      // 提现
-  // ... 其他类型
 }
 
 // 用户名
@@ -168,16 +186,16 @@ const startDate = ref('')
 const endDate = ref('')
 const showStartPicker = ref(false)
 const showEndPicker = ref(false)
-const startPickerDate = ref(['2024', '01', '01'])
-const endPickerDate = ref(['2024', '12', '31'])
+const startPickerDate = ref(['2025', '10', '01'])
+const endPickerDate = ref(['2025', '10', '05'])
 
 // 列表数据
 const recordList = ref<any[]>([])
 const loading = ref(false)
 const finished = ref(false)
+const refreshing = ref(false)
 const page = ref(1)
 const limit = 20
-const changeLoading = ref(false)
 
 // 统计信息
 const statsInfo = ref({
@@ -187,7 +205,7 @@ const statsInfo = ref({
 })
 
 // 初始化
-onMounted(() => {
+onMounted(async () => {
   username.value = route.query.username as string || ''
   if (!username.value) {
     showToast('用户名不能为空')
@@ -207,7 +225,8 @@ onMounted(() => {
   startDate.value = `${year}-${month}-01`
   endDate.value = `${year}-${month}-${day}`
   
-  // 加载数据
+  // 延迟加载数据，确保DOM准备好
+  await nextTick()
   resetList()
 })
 
@@ -228,103 +247,86 @@ const formatMoney = (money: string | number) => {
   return `¥${val.toFixed(2)}`
 }
 
-// 判断记录是否可修改（只有结算类型可修改）
+// 判断记录是否可修改
 const isModifiable = (item: any) => {
-  // 根据 operate_type 判断是否为结算类型
-  // 这里需要根据实际的后端定义来判断
-  // 暂时假设 operate_type == 2 是结算
+  // 根据描述判断是否包含"WIN"关键词，这些是结算记录
+  if (item.description && item.description.includes('WIN')) {
+    return true
+  }
+  // 或者根据 operate_type 判断
   return item.operate_type === OPERATE_TYPES.SETTLEMENT
 }
 
-// 判断输赢状态（基于 number_type）
+// 判断输赢状态
 const isWin = (item: any) => {
-  return item.number_type === 1
+  // 优先根据 number_type 判断
+  if (item.number_type !== undefined) {
+    return item.number_type === 1
+  }
+  // 备用：根据金额正负判断
+  return parseFloat(item.money) > 0
 }
 
 // 获取游戏类型文本
 const getGameTypeText = (item: any) => {
-  if (item.game_code) {
-    return item.game_code
-  }
-  // 根据 operate_type 返回对应文本
-  switch (item.operate_type) {
-    case OPERATE_TYPES.BET:
-      return '游戏下注'
-    case OPERATE_TYPES.SETTLEMENT:
-      return '游戏结算'
-    case OPERATE_TYPES.RECHARGE:
-      return '充值'
-    case OPERATE_TYPES.WITHDRAW:
-      return '提现'
-    default:
-      return '游戏'
-  }
+  return item.game_code || '游戏'
 }
 
 // 获取金额显示样式类
 const getMoneyClass = (item: any) => {
-  // 基于 number_type 判断，而不是 money 的正负
   return isWin(item) ? 'win' : 'lose'
 }
 
 // 获取金额显示文本
 const getMoneyDisplay = (item: any) => {
-  const money = Math.abs(parseFloat(item.money)) // 确保显示正数
+  const money = Math.abs(parseFloat(item.money))
   const prefix = isWin(item) ? '+' : '-'
   return `${prefix}¥${money.toFixed(2)}`
 }
 
 // 获取状态标签类型
 const getStatusTagType = (item: any) => {
-  if (item.operate_type === OPERATE_TYPES.SETTLEMENT) {
+  if (isModifiable(item)) {
     return isWin(item) ? 'success' : 'danger'
   }
-  // 非结算类型用默认颜色
   return 'default'
 }
 
 // 获取状态文本
 const getStatusText = (item: any) => {
-  if (item.operate_type === OPERATE_TYPES.SETTLEMENT) {
+  if (isModifiable(item)) {
     return isWin(item) ? '赢' : '输'
   }
-  // 根据不同类型返回对应文本
-  switch (item.operate_type) {
-    case OPERATE_TYPES.BET:
-      return '下注'
-    case OPERATE_TYPES.RECHARGE:
-      return '充值'
-    case OPERATE_TYPES.WITHDRAW:
-      return '提现'
-    default:
-      return '其他'
-  }
+  return '其他'
 }
 
 // 获取备注文本
 const getRemarkText = (item: any) => {
-  // 如果有 description 字段，优先使用
-  if (item.description) {
+  if (item.description && item.description.includes('WIN')) {
     return item.description
   }
-  
-  // 只有可修改的结算记录才显示可修改提示
-  if (isModifiable(item)) {
-    return '点击可修改输赢状态'
+  if (!isModifiable(item) && item.description) {
+    return item.description
   }
-  
-  // 其他类型返回空或对应说明
   return ''
 }
 
-// 处理记录点击
-const handleItemClick = (item: any) => {
-  // 只有可修改的记录才处理点击
-  if (!isModifiable(item)) {
-    return
-  }
+// 获取切换按钮文本
+const getChangeButtonText = (item: any) => {
+  return isWin(item) ? '改为输' : '改为赢'
+}
+
+// 下拉刷新
+const onRefresh = async () => {
+  refreshing.value = true
+  page.value = 1
+  recordList.value = []
+  finished.value = false
   
-  handleChangeStatus(item)
+  await onLoad()
+  
+  refreshing.value = false
+  showToast('刷新成功')
 }
 
 // 加载数据
@@ -349,10 +351,15 @@ const onLoad = async () => {
       const total = result.total || 0
       const user_info = result.user_info
       
+      // 为每条记录添加changing状态
+      list.forEach((item: any) => {
+        item.changing = false
+      })
+      
       if (page.value === 1) {
         recordList.value = list
       } else {
-        recordList.value.push(...list)
+        recordList.value = [...recordList.value, ...list]
       }
       
       // 更新统计信息
@@ -406,7 +413,6 @@ const resetList = () => {
   page.value = 1
   recordList.value = []
   finished.value = false
-  // 手动触发加载
   onLoad()
 }
 
@@ -438,23 +444,24 @@ const handleChangeStatus = async (item: any) => {
       cancelButtonText: '取消'
     })
     
-    changeLoading.value = true
+    // 设置当前项的loading状态
+    item.changing = true
     
-    // 调用修改接口
     await changeRecord({
       log_id: item.id,
-      status: isWin(item) ? 'lose' : 'win'  // 切换状态
+      status: isWin(item) ? 'lose' : 'win'
     })
     
-    changeLoading.value = false
+    item.changing = false
     showToast('修改成功')
     
     // 刷新列表
-    resetList()
+    setTimeout(() => {
+      onRefresh()
+    }, 500)
     
   } catch (error: any) {
-    changeLoading.value = false
-    // 用户取消操作不显示错误
+    item.changing = false
     if (error !== 'cancel' && error.message !== 'cancel') {
       showToast(error.message || '修改失败')
     }
@@ -464,14 +471,26 @@ const handleChangeStatus = async (item: any) => {
 
 <style lang="scss" scoped>
 .record-list-container {
-  min-height: 100vh;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
   background: #f5f5f5;
+}
+
+// 主内容区域 - 可滚动
+.main-content {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 // 搜索区域
 .search-section {
   background: white;
   padding: 12px 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
 
   .search-buttons {
     display: flex;
@@ -520,7 +539,7 @@ const handleChangeStatus = async (item: any) => {
 
 // 记录列表
 .record-list {
-  padding: 8px 12px 20px;
+  padding: 0 12px 20px;
 
   .record-item {
     background: white;
@@ -528,17 +547,6 @@ const handleChangeStatus = async (item: any) => {
     padding: 12px;
     margin-bottom: 10px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-    transition: all 0.3s;
-    
-    // 只有可点击的记录才有手型光标和点击效果
-    &.clickable {
-      cursor: pointer;
-      
-      &:active {
-        transform: scale(0.98);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
-      }
-    }
 
     .item-header {
       display: flex;
@@ -598,28 +606,44 @@ const handleChangeStatus = async (item: any) => {
     }
 
     .item-footer {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+      .status-info {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 8px;
+
+        .action-buttons {
+          display: flex;
+          gap: 8px;
+
+          .van-button {
+            height: 26px;
+            padding: 0 12px;
+            font-size: 12px;
+          }
+        }
+      }
 
       .remark {
+        display: block;
         font-size: 12px;
         color: #999;
-        margin-left: auto;
+        line-height: 1.4;
+        word-break: break-all;
+        padding: 4px 8px;
+        background: #f8f8f8;
+        border-radius: 4px;
+        margin-top: 8px;
       }
     }
   }
 }
 
-// 加载动画
-.loading-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
+// 自定义样式
+:deep(.van-nav-bar) {
+  background: white;
 }
 
-// 自定义样式
 :deep(.van-nav-bar__title) {
   font-size: 16px;
   font-weight: 500;
@@ -633,8 +657,16 @@ const handleChangeStatus = async (item: any) => {
   width: 70px;
 }
 
+:deep(.van-pull-refresh) {
+  min-height: 100%;
+}
+
 :deep(.van-list__loading),
 :deep(.van-list__finished-text) {
   padding: 16px 0;
+}
+
+:deep(.van-tag) {
+  padding: 2px 8px;
 }
 </style>
