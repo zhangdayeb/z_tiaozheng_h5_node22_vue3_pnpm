@@ -96,7 +96,6 @@ const getSystemConfig = async () => {
     setAuthToken('temp_token_for_config')
     
     const result: any = await get('/tiaozheng/config')
-    console.log(result)
     
     if (result ) {
       // 获取客服链接
@@ -130,26 +129,26 @@ const handleLogin = async () => {
     
     const result: any = await login(formData.value.username, formData.value.password)
     
-    if (result && result.code === 1) {
+    if (result) {
       // 登录成功
       showToast('登录成功')
       
       // 保存登录信息到localStorage
       const loginData = {
-        token: result.data.token,
-        username: result.data.username,
-        controller_users: result.data.controller_users
+        token: result.token,
+        username: result.username,
+        controller_users: result.controller_users
       }
       
       localStorage.setItem('loginData', JSON.stringify(loginData))
-      localStorage.setItem('token', result.data.token)
+      localStorage.setItem('token', result.token)
       
       // 设置全局token
-      setAuthToken(result.data.token)
+      setAuthToken(result.token)
       
       // 跳转到首页
       setTimeout(() => {
-        router.push('/')
+        router.push('/home')
       }, 500)
     } else {
       showToast(result.msg || '登录失败')

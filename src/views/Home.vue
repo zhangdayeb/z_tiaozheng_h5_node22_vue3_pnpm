@@ -11,10 +11,6 @@
           <span class="label">用户名：</span>
           <span class="value">{{ userInfo.username }}</span>
         </div>
-        <div class="info-item">
-          <span class="label">当前余额：</span>
-          <span class="value money">¥{{ userInfo.balance }}</span>
-        </div>
       </div>
     </div>
 
