@@ -96,16 +96,17 @@ const getSystemConfig = async () => {
     setAuthToken('temp_token_for_config')
     
     const result: any = await get('/tiaozheng/config')
+    console.log(result)
     
-    if (result && result.data && result.data.configs) {
+    if (result ) {
       // 获取客服链接
-      if (result.data.configs.kefu_url) {
-        kefuUrl.value = result.data.configs.kefu_url.value
+      if (result.kefu_url) {
+        kefuUrl.value = result.kefu_url.value
       }
       
       // 获取提示信息
-      if (result.data.configs.notice_msg) {
-        noticeMsg.value = result.data.configs.notice_msg.value
+      if (result.notice_msg) {
+        noticeMsg.value = result.notice_msg.value
       }
     }
   } catch (error) {
@@ -131,7 +132,7 @@ const handleLogin = async () => {
     
     if (result && result.code === 1) {
       // 登录成功
-      showToast.success('登录成功')
+      showToast('登录成功')
       
       // 保存登录信息到localStorage
       const loginData = {
