@@ -72,33 +72,34 @@
           v-for="item in recordList"
           :key="item.id"
           class="record-item"
-          @click="handleChangeStatus(item)"
+          :class="{ 'clickable': isModifiable(item) }"
+          @click="handleItemClick(item)"
         >
           <div class="item-header">
-            <span class="game-type">{{ item.game_code || '游戏' }}</span>
+            <span class="game-type">{{ getGameTypeText(item) }}</span>
             <span class="time">{{ formatTime(item.created_at) }}</span>
           </div>
           
           <div class="item-content">
             <div class="money-info">
               <span class="label">金额：</span>
-              <span class="amount" :class="parseFloat(item.money) > 0 ? 'win' : 'lose'">
-                {{ parseFloat(item.money) > 0 ? '+' : '' }}{{ item.money }}
+              <span class="amount" :class="getMoneyClass(item)">
+                {{ getMoneyDisplay(item) }}
               </span>
             </div>
             
             <div class="balance-info">
               <span class="label">余额：</span>
-              <span class="balance">{{ item.money_after }}</span>
+              <span class="balance">{{ formatMoney(item.money_after) }}</span>
             </div>
           </div>
           
           <div class="item-footer">
             <van-tag 
-              :type="parseFloat(item.money) > 0 ? 'success' : 'danger'"
+              :type="getStatusTagType(item)"
               size="medium"
             >
-              {{ parseFloat(item.money) > 0 ? '赢' : '输' }}
+              {{ getStatusText(item) }}
             </van-tag>
             <span class="remark">{{ getRemarkText(item) }}</span>
           </div>
@@ -149,6 +150,15 @@ import { searchRecords, changeRecord } from '@/services/gameApi'
 
 const route = useRoute()
 const router = useRouter()
+
+// 定义操作类型常量（根据实际后端定义调整）
+const OPERATE_TYPES = {
+  BET: 1,           // 下注
+  SETTLEMENT: 2,    // 结算
+  RECHARGE: 3,      // 充值
+  WITHDRAW: 4,      // 提现
+  // ... 其他类型
+}
 
 // 用户名
 const username = ref('')
@@ -212,14 +222,109 @@ const formatTime = (time: string) => {
   return time.replace(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}/, '$1 $2')
 }
 
+// 格式化金额
+const formatMoney = (money: string | number) => {
+  const val = typeof money === 'string' ? parseFloat(money) : money
+  return `¥${val.toFixed(2)}`
+}
+
+// 判断记录是否可修改（只有结算类型可修改）
+const isModifiable = (item: any) => {
+  // 根据 operate_type 判断是否为结算类型
+  // 这里需要根据实际的后端定义来判断
+  // 暂时假设 operate_type == 2 是结算
+  return item.operate_type === OPERATE_TYPES.SETTLEMENT
+}
+
+// 判断输赢状态（基于 number_type）
+const isWin = (item: any) => {
+  return item.number_type === 1
+}
+
+// 获取游戏类型文本
+const getGameTypeText = (item: any) => {
+  if (item.game_code) {
+    return item.game_code
+  }
+  // 根据 operate_type 返回对应文本
+  switch (item.operate_type) {
+    case OPERATE_TYPES.BET:
+      return '游戏下注'
+    case OPERATE_TYPES.SETTLEMENT:
+      return '游戏结算'
+    case OPERATE_TYPES.RECHARGE:
+      return '充值'
+    case OPERATE_TYPES.WITHDRAW:
+      return '提现'
+    default:
+      return '游戏'
+  }
+}
+
+// 获取金额显示样式类
+const getMoneyClass = (item: any) => {
+  // 基于 number_type 判断，而不是 money 的正负
+  return isWin(item) ? 'win' : 'lose'
+}
+
+// 获取金额显示文本
+const getMoneyDisplay = (item: any) => {
+  const money = Math.abs(parseFloat(item.money)) // 确保显示正数
+  const prefix = isWin(item) ? '+' : '-'
+  return `${prefix}¥${money.toFixed(2)}`
+}
+
+// 获取状态标签类型
+const getStatusTagType = (item: any) => {
+  if (item.operate_type === OPERATE_TYPES.SETTLEMENT) {
+    return isWin(item) ? 'success' : 'danger'
+  }
+  // 非结算类型用默认颜色
+  return 'default'
+}
+
+// 获取状态文本
+const getStatusText = (item: any) => {
+  if (item.operate_type === OPERATE_TYPES.SETTLEMENT) {
+    return isWin(item) ? '赢' : '输'
+  }
+  // 根据不同类型返回对应文本
+  switch (item.operate_type) {
+    case OPERATE_TYPES.BET:
+      return '下注'
+    case OPERATE_TYPES.RECHARGE:
+      return '充值'
+    case OPERATE_TYPES.WITHDRAW:
+      return '提现'
+    default:
+      return '其他'
+  }
+}
+
 // 获取备注文本
 const getRemarkText = (item: any) => {
   // 如果有 description 字段，优先使用
   if (item.description) {
     return item.description
   }
-  // 否则显示默认文本
-  return '点击可修改输赢状态'
+  
+  // 只有可修改的结算记录才显示可修改提示
+  if (isModifiable(item)) {
+    return '点击可修改输赢状态'
+  }
+  
+  // 其他类型返回空或对应说明
+  return ''
+}
+
+// 处理记录点击
+const handleItemClick = (item: any) => {
+  // 只有可修改的记录才处理点击
+  if (!isModifiable(item)) {
+    return
+  }
+  
+  handleChangeStatus(item)
 }
 
 // 加载数据
@@ -239,7 +344,6 @@ const onLoad = async () => {
       limit
     })
     
-    // 修复：直接使用 result，因为 httpClient 已经返回了 data 的内容
     if (result) {
       const list = result.list || []
       const total = result.total || 0
@@ -267,7 +371,6 @@ const onLoad = async () => {
         page.value++
       }
     } else {
-      // 如果没有数据，设置为已完成
       finished.value = true
     }
     
@@ -324,13 +427,13 @@ const onEndDateConfirm = (value: any) => {
 // 修改状态
 const handleChangeStatus = async (item: any) => {
   try {
-    const currentMoney = parseFloat(item.money)
-    const currentStatus = currentMoney > 0 ? '赢' : '输'
-    const newStatus = currentMoney > 0 ? '输' : '赢'
+    const currentStatus = isWin(item) ? '赢' : '输'
+    const newStatus = isWin(item) ? '输' : '赢'
+    const money = Math.abs(parseFloat(item.money))
     
     await showConfirmDialog({
       title: '确认修改',
-      message: `是否将此记录从"${currentStatus}"改为"${newStatus}"？\n金额将从 ${item.money} 变为 ${-currentMoney}`,
+      message: `是否将此记录从"${currentStatus}"改为"${newStatus}"？\n金额：¥${money.toFixed(2)}`,
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
@@ -340,7 +443,7 @@ const handleChangeStatus = async (item: any) => {
     // 调用修改接口
     await changeRecord({
       log_id: item.id,
-      status: currentMoney > 0 ? 'lose' : 'win'  // 切换状态
+      status: isWin(item) ? 'lose' : 'win'  // 切换状态
     })
     
     changeLoading.value = false
@@ -426,11 +529,15 @@ const handleChangeStatus = async (item: any) => {
     margin-bottom: 10px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     transition: all 0.3s;
-    cursor: pointer;
-
-    &:active {
-      transform: scale(0.98);
-      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+    
+    // 只有可点击的记录才有手型光标和点击效果
+    &.clickable {
+      cursor: pointer;
+      
+      &:active {
+        transform: scale(0.98);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+      }
     }
 
     .item-header {
