@@ -109,17 +109,17 @@
                 {{ getStatusText(item) }}
               </van-tag>
               
-              <!-- 操作按钮区域 -->
-              <div v-if="isModifiable(item)" class="action-buttons">
+              <!-- 操作按钮区域 - 只有赢钱记录才显示 -->
+              <div v-if="canModify(item)" class="action-buttons">
                 <van-button
                   size="mini"
                   type="primary"
                   plain
                   round
-                  @click="handleChangeStatus(item)"
+                  @click="handleChangeAmount(item)"
                   :loading="item.changing"
                 >
-                  {{ getChangeButtonText(item) }}
+                  修改金额
                 </van-button>
               </div>
             </div>
@@ -158,6 +158,36 @@
         @cancel="showEndPicker = false"
       />
     </van-popup>
+
+    <!-- 金额修改对话框 -->
+    <van-dialog
+      v-model:show="showAmountDialog"
+      title="修改赢钱金额"
+      show-cancel-button
+      @confirm="confirmChangeAmount"
+      @cancel="cancelChangeAmount"
+    >
+      <div class="amount-dialog-content">
+        <div class="current-info">
+          <p>当前金额：<span class="win">+¥{{ currentEditItem?.money || '0.00' }}</span></p>
+        </div>
+        <van-field
+          v-model="newAmount"
+          type="number"
+          label="新金额"
+          placeholder="请输入新的赢钱金额"
+          :formatter="formatAmountInput"
+        >
+          <template #left-icon>
+            <span style="color: #67c23a; font-weight: 600;">+¥</span>
+          </template>
+        </van-field>
+        <div class="dialog-tips">
+          <van-icon name="info-o" />
+          <span>只能修改赢钱金额，请输入正数</span>
+        </div>
+      </div>
+    </van-dialog>
   </div>
 </template>
 
@@ -176,6 +206,7 @@ const OPERATE_TYPES = {
   SETTLEMENT: 2,    // 结算
   RECHARGE: 3,      // 充值
   WITHDRAW: 4,      // 提现
+  WIN: 11,          // 赢钱结算
 }
 
 // 用户名
@@ -203,6 +234,11 @@ const statsInfo = ref({
   total: 0,
   balance: '0.00'
 })
+
+// 金额修改相关
+const showAmountDialog = ref(false)
+const currentEditItem = ref<any>(null)
+const newAmount = ref('')
 
 // 初始化
 onMounted(async () => {
@@ -247,14 +283,38 @@ const formatMoney = (money: string | number) => {
   return `¥${val.toFixed(2)}`
 }
 
-// 判断记录是否可修改
-const isModifiable = (item: any) => {
-  // 根据描述判断是否包含"WIN"关键词，这些是结算记录
-  if (item.description && item.description.includes('WIN')) {
+// 格式化金额输入
+const formatAmountInput = (value: string) => {
+  // 只允许输入数字和小数点
+  value = value.replace(/[^\d.]/g, '')
+  // 只保留一个小数点
+  const parts = value.split('.')
+  if (parts.length > 2) {
+    value = parts[0] + '.' + parts.slice(1).join('')
+  }
+  // 限制小数位数为2位
+  if (parts[1] && parts[1].length > 2) {
+    value = parts[0] + '.' + parts[1].substring(0, 2)
+  }
+  return value
+}
+
+// 判断是否可以修改（只有赢钱记录可以修改）
+const canModify = (item: any) => {
+  // 判断是否为赢钱记录
+  // 1. 根据 operate_type 判断
+  if (item.operate_type === OPERATE_TYPES.WIN) {
     return true
   }
-  // 或者根据 operate_type 判断
-  return item.operate_type === OPERATE_TYPES.SETTLEMENT
+  // 2. 根据描述判断是否包含"WIN"且金额为正
+  if (item.description && item.description.includes('WIN') && parseFloat(item.money) > 0) {
+    return true
+  }
+  // 3. 根据 number_type 和金额判断
+  if (item.number_type === 1 && parseFloat(item.money) > 0) {
+    return true
+  }
+  return false
 }
 
 // 判断输赢状态
@@ -286,34 +346,32 @@ const getMoneyDisplay = (item: any) => {
 
 // 获取状态标签类型
 const getStatusTagType = (item: any) => {
-  if (isModifiable(item)) {
-    return isWin(item) ? 'success' : 'danger'
+  if (isWin(item)) {
+    return 'success'
   }
-  return 'default'
+  return 'danger'
 }
 
 // 获取状态文本
 const getStatusText = (item: any) => {
-  if (isModifiable(item)) {
-    return isWin(item) ? '赢' : '输'
+  if (item.operate_type === OPERATE_TYPES.WIN || (item.description && item.description.includes('WIN'))) {
+    return '赢钱结算'
   }
-  return '其他'
+  if (isWin(item)) {
+    return '赢'
+  }
+  return '输'
 }
 
 // 获取备注文本
 const getRemarkText = (item: any) => {
-  if (item.description && item.description.includes('WIN')) {
-    return item.description
+  if (item.remark) {
+    return item.remark
   }
-  if (!isModifiable(item) && item.description) {
+  if (item.description) {
     return item.description
   }
   return ''
-}
-
-// 获取切换按钮文本
-const getChangeButtonText = (item: any) => {
-  return isWin(item) ? '改为输' : '改为赢'
 }
 
 // 下拉刷新
@@ -430,29 +488,54 @@ const onEndDateConfirm = (value: any) => {
   showEndPicker.value = false
 }
 
-// 修改状态
-const handleChangeStatus = async (item: any) => {
+// 点击修改金额
+const handleChangeAmount = (item: any) => {
+  currentEditItem.value = item
+  newAmount.value = Math.abs(parseFloat(item.money)).toFixed(2)
+  showAmountDialog.value = true
+}
+
+// 确认修改金额
+const confirmChangeAmount = async () => {
+  if (!currentEditItem.value) {
+    return
+  }
+  
+  const amount = parseFloat(newAmount.value)
+  
+  // 验证输入
+  if (isNaN(amount) || amount <= 0) {
+    showToast('请输入正确的金额')
+    return
+  }
+  
+  // 如果金额没有变化
+  const currentAmount = Math.abs(parseFloat(currentEditItem.value.money))
+  if (amount === currentAmount) {
+    showToast('金额未发生变化')
+    showAmountDialog.value = false
+    return
+  }
+  
   try {
-    const currentStatus = isWin(item) ? '赢' : '输'
-    const newStatus = isWin(item) ? '输' : '赢'
-    const money = Math.abs(parseFloat(item.money))
-    
+    // 再次确认
     await showConfirmDialog({
       title: '确认修改',
-      message: `是否将此记录从"${currentStatus}"改为"${newStatus}"？\n金额：¥${money.toFixed(2)}`,
+      message: `将赢钱金额从 ¥${currentAmount.toFixed(2)} 修改为 ¥${amount.toFixed(2)}？`,
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
     
-    // 设置当前项的loading状态
-    item.changing = true
+    // 设置loading状态
+    currentEditItem.value.changing = true
+    showAmountDialog.value = false
     
+    // 调用接口
     await changeRecord({
-      log_id: item.id,
-      status: isWin(item) ? 'lose' : 'win'
+      log_id: currentEditItem.value.id,
+      money: amount
     })
     
-    item.changing = false
     showToast('修改成功')
     
     // 刷新列表
@@ -461,11 +544,17 @@ const handleChangeStatus = async (item: any) => {
     }, 500)
     
   } catch (error: any) {
-    item.changing = false
+    currentEditItem.value.changing = false
     if (error !== 'cancel' && error.message !== 'cancel') {
       showToast(error.message || '修改失败')
     }
   }
+}
+
+// 取消修改金额
+const cancelChangeAmount = () => {
+  currentEditItem.value = null
+  newAmount.value = ''
 }
 </script>
 
@@ -639,6 +728,63 @@ const handleChangeStatus = async (item: any) => {
   }
 }
 
+// 金额修改对话框样式
+.amount-dialog-content {
+  padding: 16px;
+
+  .current-info {
+    margin-bottom: 16px;
+    padding: 12px;
+    background: #f5f5f5;
+    border-radius: 8px;
+    
+    p {
+      margin: 0;
+      font-size: 14px;
+      color: #666;
+      
+      span.win {
+        color: #67c23a;
+        font-size: 16px;
+        font-weight: 600;
+        margin-left: 8px;
+      }
+    }
+  }
+
+  :deep(.van-field) {
+    background: white;
+    border: 1px solid #e5e5e5;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    
+    .van-field__label {
+      width: 60px;
+      color: #333;
+    }
+    
+    input {
+      font-size: 16px;
+      font-weight: 500;
+    }
+  }
+
+  .dialog-tips {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    background: #fff7e6;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #f90;
+    
+    .van-icon {
+      margin-right: 6px;
+      font-size: 14px;
+    }
+  }
+}
+
 // 自定义样式
 :deep(.van-nav-bar) {
   background: white;
@@ -668,5 +814,32 @@ const handleChangeStatus = async (item: any) => {
 
 :deep(.van-tag) {
   padding: 2px 8px;
+}
+
+// 对话框样式
+:deep(.van-dialog) {
+  border-radius: 12px;
+  overflow: visible;
+  
+  .van-dialog__header {
+    font-weight: 600;
+    padding: 20px 16px 16px;
+  }
+  
+  .van-dialog__content {
+    padding: 0;
+    max-height: 60vh;
+    overflow-y: auto;
+  }
+  
+  .van-dialog__footer {
+    padding: 12px 16px;
+    
+    .van-button {
+      height: 40px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+  }
 }
 </style>

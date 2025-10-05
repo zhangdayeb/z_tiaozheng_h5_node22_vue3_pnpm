@@ -48,7 +48,7 @@ export class GameApiService {
   // 修改记录的输赢状态
   static async changeRecord(params: {
     log_id: number      // 记录ID
-    status: string      // 输赢状态：'win' 或 'lose'
+    money: number       // 修改后的赢钱金额（正数）
   }) {
     return post('/tiaozheng/change', params)
   }
