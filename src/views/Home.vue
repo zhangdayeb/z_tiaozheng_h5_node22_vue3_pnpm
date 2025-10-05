@@ -142,7 +142,7 @@ const handleLogout = async () => {
     showToast('已退出登录')
     
     // 跳转到登录页面或刷新页面
-    // router.push('/login')
+    router.push('/')
     
   } catch (error) {
     // 用户取消
