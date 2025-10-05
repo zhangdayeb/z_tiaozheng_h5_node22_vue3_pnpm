@@ -66,6 +66,7 @@
         :finished="finished"
         finished-text="没有更多了"
         @load="onLoad"
+        :immediate-check="false"
       >
         <div
           v-for="item in recordList"
@@ -74,15 +75,15 @@
           @click="handleChangeStatus(item)"
         >
           <div class="item-header">
-            <span class="game-type">{{ item.game_type || '游戏' }}</span>
+            <span class="game-type">{{ item.game_code || '游戏' }}</span>
             <span class="time">{{ formatTime(item.created_at) }}</span>
           </div>
           
           <div class="item-content">
             <div class="money-info">
               <span class="label">金额：</span>
-              <span class="amount" :class="item.money > 0 ? 'win' : 'lose'">
-                {{ item.money > 0 ? '+' : '' }}{{ item.money }}
+              <span class="amount" :class="parseFloat(item.money) > 0 ? 'win' : 'lose'">
+                {{ parseFloat(item.money) > 0 ? '+' : '' }}{{ item.money }}
               </span>
             </div>
             
@@ -94,12 +95,12 @@
           
           <div class="item-footer">
             <van-tag 
-              :type="item.money > 0 ? 'success' : 'danger'"
+              :type="parseFloat(item.money) > 0 ? 'success' : 'danger'"
               size="medium"
             >
-              {{ item.money > 0 ? '赢' : '输' }}
+              {{ parseFloat(item.money) > 0 ? '赢' : '输' }}
             </van-tag>
-            <span class="remark">{{ item.remark || '无备注' }}</span>
+            <span class="remark">{{ getRemarkText(item) }}</span>
           </div>
         </div>
       </van-list>
@@ -141,7 +142,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { showToast, showConfirmDialog } from 'vant'
 import { searchRecords, changeRecord } from '@/services/gameApi'
@@ -211,9 +212,25 @@ const formatTime = (time: string) => {
   return time.replace(/(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}/, '$1 $2')
 }
 
+// 获取备注文本
+const getRemarkText = (item: any) => {
+  // 如果有 description 字段，优先使用
+  if (item.description) {
+    return item.description
+  }
+  // 否则显示默认文本
+  return '点击可修改输赢状态'
+}
+
 // 加载数据
 const onLoad = async () => {
+  if (finished.value) {
+    return
+  }
+  
   try {
+    loading.value = true
+    
     const result = await searchRecords({
       username: username.value,
       start_date: startDate.value,
@@ -222,8 +239,11 @@ const onLoad = async () => {
       limit
     })
     
-    if (result.data) {
-      const { list = [], total = 0, user_info } = result.data
+    // 修复：直接使用 result，因为 httpClient 已经返回了 data 的内容
+    if (result) {
+      const list = result.list || []
+      const total = result.total || 0
+      const user_info = result.user_info
       
       if (page.value === 1) {
         recordList.value = list
@@ -240,18 +260,23 @@ const onLoad = async () => {
         }
       }
       
-      // 判断是否还有更多
+      // 判断是否还有更多数据
       if (recordList.value.length >= total || list.length < limit) {
         finished.value = true
       } else {
         page.value++
       }
+    } else {
+      // 如果没有数据，设置为已完成
+      finished.value = true
     }
     
-    loading.value = false
   } catch (error: any) {
-    loading.value = false
+    console.error('加载数据失败:', error)
     showToast(error.message || '加载失败')
+    finished.value = true
+  } finally {
+    loading.value = false
   }
 }
 
@@ -278,7 +303,7 @@ const resetList = () => {
   page.value = 1
   recordList.value = []
   finished.value = false
-  loading.value = true
+  // 手动触发加载
   onLoad()
 }
 
@@ -299,12 +324,13 @@ const onEndDateConfirm = (value: any) => {
 // 修改状态
 const handleChangeStatus = async (item: any) => {
   try {
-    const currentStatus = item.money > 0 ? '赢' : '输'
-    const newStatus = item.money > 0 ? '输' : '赢'
+    const currentMoney = parseFloat(item.money)
+    const currentStatus = currentMoney > 0 ? '赢' : '输'
+    const newStatus = currentMoney > 0 ? '输' : '赢'
     
     await showConfirmDialog({
       title: '确认修改',
-      message: `是否将此记录从"${currentStatus}"改为"${newStatus}"？`,
+      message: `是否将此记录从"${currentStatus}"改为"${newStatus}"？\n金额将从 ${item.money} 变为 ${-currentMoney}`,
       confirmButtonText: '确定',
       cancelButtonText: '取消'
     })
@@ -312,10 +338,9 @@ const handleChangeStatus = async (item: any) => {
     changeLoading.value = true
     
     // 调用修改接口
-    // 注意：这里需要根据实际后端接口调整参数
     await changeRecord({
       log_id: item.id,
-      status: item.money > 0 ? 'lose' : 'win'  // 切换状态
+      status: currentMoney > 0 ? 'lose' : 'win'  // 切换状态
     })
     
     changeLoading.value = false
@@ -326,7 +351,8 @@ const handleChangeStatus = async (item: any) => {
     
   } catch (error: any) {
     changeLoading.value = false
-    if (error !== 'cancel') {
+    // 用户取消操作不显示错误
+    if (error !== 'cancel' && error.message !== 'cancel') {
       showToast(error.message || '修改失败')
     }
   }
@@ -400,6 +426,7 @@ const handleChangeStatus = async (item: any) => {
     margin-bottom: 10px;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
     transition: all 0.3s;
+    cursor: pointer;
 
     &:active {
       transform: scale(0.98);
@@ -497,5 +524,10 @@ const handleChangeStatus = async (item: any) => {
 
 :deep(.van-field__label) {
   width: 70px;
+}
+
+:deep(.van-list__loading),
+:deep(.van-list__finished-text) {
+  padding: 16px 0;
 }
 </style>
